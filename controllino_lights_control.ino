@@ -17,6 +17,7 @@
 #define clientId "" // Your client id comes here;
 #define clientKey "" // Your client key comes here;
 
+//IPAddress localMqttServer(192, 168, 1, 121);
 
 ATTDevice Device(deviceId, clientId, clientKey);            //create the object that provides the connection to the cloud to manager the device.
 char httpServer[] = "api.smartliving.io";                   // HTTP API Server host                  
@@ -49,14 +50,16 @@ byte relays[] = {CONTROLLINO_R0, CONTROLLINO_R1, CONTROLLINO_R2, CONTROLLINO_R3,
 #define IOMAPID 99
 #define PINTYPESID 98
 #define USEDRELAYSID 97
-#define OUTPUTSID 96
+#define OUTPUTSID 94
 //#define ERRORID 95
-                 
-byte ioMap[IOMAPSIZE];                                                  //maps input pins with output pins
-char pinTypes[PINTYPESIZE];                                             //specify for each input pin if it is analog, digital button or digital toggle, or not used
+        
+//maps input pins with output pins      
+//byte ioMap[IOMAPSIZE] = {22, 23, 24, 25, 26, 27, 28, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+byte ioMap[IOMAPSIZE] = {0x25, 23, 24, 25, 26, 27, 28, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+char pinTypes[PINTYPESIZE + 1] = "TTTTTTTNNNNNNNNNNNNNN";               //specify for each input pin if it is analog, digital button or digital toggle, or not used
 int prevPinValues[PINTYPESIZE];                                     //used to keep track of the previous state of the input pins, for analog, it stores the prev value, for digital, it  stores the prev value of the pin and optionally (for toggle) the prev state of the output.
-short usedRelays = 0;                                                   //bit mask to specify which relays are used or not.
-int usedOutputs = 0;                                                        //bit mask to speivy which digitial outputs are used -> so we know how to activate them.
+unsigned short usedRelays = 0x807F;                                                   //bit mask to specify which relays are used or not.
+unsigned int usedOutputs = 0;                                                        //bit mask to speivy which digitial outputs are used -> so we know how to activate them.
 
 //required for the device
 void callback(char* topic, byte* payload, unsigned int length);
@@ -68,7 +71,7 @@ PubSubClient pubSub(mqttServer, 1883, callback, ethClient);
 //configs determine which inputs are connected to which outputs, if Inputs are analog, pushbuttons or toggle buttons.
 void readConfigData()
 {
-    if(EEPROM.read(0) != 0)
+    if(EEPROM.read(0) != 255)
     {
         #ifdef DEBUG 
         Serial.println("reading previous config"); 
@@ -110,14 +113,15 @@ void storeOutputs(int newValue)
 {
     if(newValue != usedOutputs)
     {
-		#ifdef DEBUG 
-		Serial.print("storing used outputs: "); Serial.println(newValue);
-		#endif
+        #ifdef DEBUG 
+        Serial.print("storing used outputs: "); Serial.println(newValue);
+        #endif
         usedOutputs = newValue;
         byte *poututs = (byte*)&usedOutputs;
         EEPROM.write(3 + IOMAPSIZE + PINTYPESIZE, poututs[0]);
         EEPROM.write(4 + IOMAPSIZE + PINTYPESIZE, poututs[1]);
         EEPROM.write(5 + IOMAPSIZE + PINTYPESIZE, poututs[2]);
+        EEPROM.write(0, 1);                                     //indicate that the eeprom has memory stored
     }
 }
 
@@ -126,13 +130,14 @@ void storeUsedRelays(short newValue)
 {
     if(newValue != usedRelays)
     {
-		#ifdef DEBUG 
-		Serial.print("storing used relays: "); Serial.println(newValue);
-		#endif
+        #ifdef DEBUG 
+        Serial.print("storing used relays: "); Serial.println(newValue);
+        #endif
         usedRelays = newValue;
         byte *pUsedRelays = (byte*)&usedRelays;
         EEPROM.write(1 + IOMAPSIZE + PINTYPESIZE, pUsedRelays[0]);
         EEPROM.write(2 + IOMAPSIZE + PINTYPESIZE, pUsedRelays[1]);
+        EEPROM.write(0, 1);                                     //indicate that the eeprom has memory stored
     }
 }
 
@@ -140,26 +145,27 @@ void storeUsedRelays(short newValue)
 //checks if the 2 arrays are different, if so, the new array is stored into the new one and into the eeprom
 void storePinTypes(char *newValues)
 {
-	#ifdef DEBUG 
-	Serial.println("storing pintypes");
-	#endif
+    #ifdef DEBUG 
+    Serial.println("storing pintypes");
+    #endif
     bool different = false;
     for(int i = 0; i < PINTYPESIZE; i++){
         if(newValues[i] != pinTypes[i]){
             different = true;
             pinTypes[i] = newValues[i];
-			#ifdef DEBUG 
-			Serial.print(i); Serial.print(" = "); Serial.println(newValues[i]);
-			#endif
+            #ifdef DEBUG 
+            Serial.print(i); Serial.print(" = "); Serial.println(newValues[i]);
+            #endif
         }
     }
     if(different){
-		#ifdef DEBUG 
-		Serial.println("storing pintypes to eeprom");
-		#endif
+        #ifdef DEBUG 
+        Serial.println("storing pintypes to eeprom");
+        #endif
         for(int i = 0; i < PINTYPESIZE; i++){
             EEPROM.write(i + 1 + IOMAPSIZE, pinTypes[i]);
         }
+        EEPROM.write(0, 1);                                     //indicate that the eeprom has memory stored
     }
 }
 
@@ -167,26 +173,27 @@ void storePinTypes(char *newValues)
 //checks if the 2 arrays are different, if so, the new array is stored into the new one and into the eeprom
 void storeioMap(byte *newValues)
 {
-	#ifdef DEBUG 
-	Serial.println("storing ioMap");
-	#endif
+    #ifdef DEBUG 
+    Serial.println("storing ioMap");
+    #endif
     bool different = false;
     for(int i = 0; i < IOMAPSIZE; i++){
         if(newValues[i] != ioMap[i]){
             different = true;
             ioMap[i] = newValues[i];
-			#ifdef DEBUG 
-			Serial.print(i); Serial.print(" = "); Serial.println(newValues[i]);
-			#endif
+            #ifdef DEBUG 
+            Serial.print(i); Serial.print(" = "); Serial.println(newValues[i]);
+            #endif
         }
     }
     if(different){
-		#ifdef DEBUG 
-		Serial.println("storing ioMap to eeprom");
-		#endif
+        #ifdef DEBUG 
+        Serial.println("storing ioMap to eeprom");
+        #endif
         for(int i = 0; i < IOMAPSIZE; i++){
             EEPROM.write(i + 1, ioMap[i]);
         }
+        EEPROM.write(0, 1);                                     //indicate that the eeprom has memory stored
     }
 }
 
@@ -196,33 +203,33 @@ void initPins()
 {
     for(int i = 0 ; i < PINTYPESIZE; i++) {
         if(pinTypes[i] == 'A' || pinTypes[i] == 'B' || pinTypes[i] == 'T'){
-			#ifdef DEBUG 
-			Serial.print("init input pin: "); Serial.println(i);
-			#endif
+            #ifdef DEBUG 
+            Serial.print("init input pin: "); Serial.println(i);
+            #endif
             pinMode(inputs[i], INPUT);
-		}
+        }
     }
     
-    short relay = 1;
+    unsigned short relay = 1;
     for(int i = 0 ; i < USEDRELAYSSIZE; i++) {
-        if(relay & usedRelays == 1){
-			#ifdef DEBUG 
-			Serial.print("init relay: "); Serial.println(i);
-			#endif
+        if((relay & usedRelays) != 0){
+            #ifdef DEBUG 
+            Serial.print("init relay: "); Serial.println(i);
+            #endif
             pinMode(relays[i], OUTPUT);
-		}
-        relay << 1;
+        }
+        relay = relay << 1;
     }
     
-    int output = 1;
+    unsigned int output = 1;
     for(int i = 0 ; i < OUTPUTSSIZE; i++) {
-        if(output & usedOutputs == 1){
-			#ifdef DEBUG 
-			Serial.print("init output pin: "); Serial.println(i);
-			#endif
+        if((output & usedOutputs) != 0){
+            #ifdef DEBUG 
+            Serial.print("init output pin: "); Serial.println(i);
+            #endif
             pinMode(outputs[i], OUTPUT);
-		}
-        output << 1;
+        }
+        output = output << 1;
     }
 }
 
@@ -232,9 +239,9 @@ void initNetwork()
     byte mac[] = {  0x90, 0xA2, 0xDA, 0x0D, 0x8D, 0x3D };       // Adapt to your Arduino MAC Address 
     if (Ethernet.begin(mac) == 0)                             // Initialize the Ethernet connection:
     { 
-		#ifdef DEBUG 
+        #ifdef DEBUG 
         Serial.println(F("DHCP failed,end"));
-		#endif
+        #endif
         while(true);                                            //we failed to connect, halt execution here. 
     }
     delay(1000);                                            //give the Ethernet shield a second to initialize:
@@ -248,34 +255,35 @@ void syncDevice()
     Device.AddAsset(PINTYPESID, "pin types", "specify for each input pin if it is analog (A), button (B), toggle (T) or not used (any other).", true, "string"); 
     Device.AddAsset(USEDRELAYSID, "used relays", "Specify which relays (outputs) are used, as a bitfield (16 bits)", true, "integer"); 
     Device.AddAsset(OUTPUTSID, "used outputs", "Specify which digital outputs are used (20 bits)", true, "integer"); 
-	//Device.AddAsset(ERRORID, "last error", "the last error produced by the device (after bootup)", false, "string"); 
+    //Device.AddAsset(ERRORID, "last error", "the last error produced by the device (after bootup)", false, "string"); 
     for(int i = 0; i < PINTYPESIZE; i++){
-        String label(inputs[i]);
+        String label(i);
         if(pinTypes[i] == 'A')
             Device.AddAsset(inputs[i], "knob " + label, "an analog input pin", false, "integer"); 
         else if(pinTypes[i] == 'B')
             Device.AddAsset(inputs[i], "button " + label, "a push button input pin", false, "boolean"); 
         else if(pinTypes[i] == 'T')
             Device.AddAsset(inputs[i], "toggle " + label, "a toggle button input pin", false, "boolean"); 
-		else
-			Serial.print("invalid pin type: "); Serial.println(pinTypes[i]);
+        else
+            Serial.print("invalid pin type: "); Serial.println(pinTypes[i]);
     }
-    short relay = 1;
+    unsigned short relay = 1;
     for(int i = 0 ; i < USEDRELAYSSIZE; i++) {
-        if(relay & usedRelays == 1){
-            String label(relays[i]);
+        Serial.print(relay); Serial.println(" = relay, usedRelays & relays = "); Serial.println(relay & usedRelays);
+        if((relay & usedRelays) != 0){
+            String label(i);
             Device.AddAsset(relays[i], "relays " + label, "an output relays", true, "boolean"); 
         }
-        relay << 1;
+        relay = relay << 1;
     }
     
-    int output = 1;
+    unsigned int output = 1;
     for(int i = 0 ; i < OUTPUTSSIZE; i++) {
-        if(output & usedOutputs == 1){
-            String label(outputs[i]);
+        if((output & usedOutputs) != 0){
+            String label(i);
             Device.AddAsset(outputs[i], "output " + label, "an output pin", true, "boolean"); 
         }
-        output << 1;
+        output = output << 1;
     }
 }
 
@@ -289,27 +297,26 @@ void setup()
     syncDevice();
     Device.Subscribe(pubSub);                                   // make certain that we can receive message from the iot platform (activate mqtt)
 }
-                                								
+                                                                
 void loop()
 {
     for(int i = 0; i < PINTYPESIZE; i++){
         if(pinTypes[i] == 'A'){                                 //we can only upload analog values to the fog/cloud for further processing.         
             int value = analogRead(inputs[i]);
-			#ifdef DEBUG 
-			Serial.print("value pin "); Serial.print(pinTypes[i]); Serial.print(" = "); Serial.println(value);
-			#endif
             if(value != prevPinValues[i]){
-				Serial.println("store value");
+                #ifdef DEBUG 
+                Serial.print("value pin "); Serial.print(pinTypes[i]); Serial.print(" = "); Serial.println(value);
+                #endif
                 prevPinValues[i] = value;
                 Device.Send(String(value), inputs[i]);
             }
         }
         else if(pinTypes[i] == 'B'){
             bool value = digitalRead(inputs[i]);
-			#ifdef DEBUG 
-			Serial.print("value pin "); Serial.print(pinTypes[i]); Serial.print(" = "); Serial.println(value);
-			#endif
             if(value != (bool)prevPinValues[i]){
+                #ifdef DEBUG 
+                Serial.print("value pin "); Serial.print(pinTypes[i]); Serial.print(" = "); Serial.println(value);
+                #endif
                 prevPinValues[i] = (int)value;
                 doIOMapping(i, value);
                 Device.Send(String(value), inputs[i]);
@@ -317,22 +324,19 @@ void loop()
         }
         else if(pinTypes[i] == 'T'){
             bool value = digitalRead(inputs[i]);
-			#ifdef DEBUG 
-			Serial.print("value pin "); Serial.print(pinTypes[i]); Serial.print(" = "); Serial.println(value);
-			#endif
             bool* prevValues = (bool*)&(prevPinValues[i]);
             if(value != prevValues[0]){
-				Serial.println("store value");
+                if(value == 1){
+                    #ifdef DEBUG 
+                    Serial.print("value pin "); Serial.print(pinTypes[i]); Serial.print(" = "); Serial.println(value);
+                    #endif
+                    prevValues[1] = !prevValues[1];
+                    doIOMapping(i, prevValues[1]);
+                    Device.Send(String(prevValues[1]), inputs[i]);
+                }
                 prevValues[0] = value;
-                prevValues[1] = !prevValues[1];
-                doIOMapping(i, !prevValues[1]);
-                Device.Send(String(prevValues[1]), inputs[i]);
             }
         }
-		#ifdef DEBUG 
-		else
-			Serial.print("unknown pintype: "); Serial.println(pinTypes[i]);
-		#endif
     }
     Device.Process(); 
 }
@@ -341,9 +345,9 @@ void loop()
 void doIOMapping(byte ioMapIndex, bool value)
 {
     if(ioMap[ioMapIndex] != -1){                //-1 = 255
-		#ifdef DEBUG 
-		Serial.print("found mapping to activate: "); Serial.println(ioMap[ioMapIndex]);
-		#endif
+        #ifdef DEBUG 
+        Serial.print("found mapping to activate: "); Serial.println(ioMap[ioMapIndex]);
+        #endif
         digitalWrite(ioMap[ioMapIndex], value);
         Device.Send(String(value), ioMap[ioMapIndex]);
     }
@@ -353,10 +357,10 @@ void doIOMapping(byte ioMapIndex, bool value)
 int GetPinNr(char* topic, int topicLength)
 {
     int result = topic[topicLength - 9] - 48;
-	#ifdef DEBUG 
+    #ifdef DEBUG 
     Serial.print("len: "); Serial.println(topicLength - 10 - sizeof(deviceId));
     Serial.print("content: "); Serial.println(topic[topicLength - 10 - sizeof(deviceId)]);
-	#endif
+    #endif
     if(topic[topicLength - 10 - sizeof(deviceId)] != '/'){
         result += (topic[topicLength - 10 - sizeof(deviceId)] - 48) * 10;
     }   
