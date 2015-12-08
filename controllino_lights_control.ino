@@ -13,9 +13,9 @@
 // Enter below your client credentials. 
 //These credentials can be found in the configuration pane under your device in the smartliving.io website 
 
-#define deviceId "" // Your device id comes here
-#define clientId "" // Your client id comes here;
-#define clientKey "" // Your client key comes here;
+#define deviceId "jfxvrU9wq41ofxkBbGYqMBC" // Your device id comes here
+#define clientId "KardCard" // Your client id comes here;
+#define clientKey "42pprmkiubr" // Your client key comes here;
 
 //IPAddress localMqttServer(192, 168, 1, 121);
 
@@ -55,16 +55,25 @@ byte relays[] = {CONTROLLINO_R0, CONTROLLINO_R1, CONTROLLINO_R2, CONTROLLINO_R3,
         
 //maps input pins with output pins      
 //byte ioMap[IOMAPSIZE] = {22, 23, 24, 25, 26, 27, 28, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-byte ioMap[IOMAPSIZE] = {0x25, 23, 24, 25, 26, 27, 28, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+byte ioMap[IOMAPSIZE] = {CONTROLLINO_R10, CONTROLLINO_R11, CONTROLLINO_R15, 25, 26, 27, 28, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 char pinTypes[PINTYPESIZE + 1] = "TTTTTTTNNNNNNNNNNNNNN";               //specify for each input pin if it is analog, digital button or digital toggle, or not used
-int prevPinValues[PINTYPESIZE];                                     //used to keep track of the previous state of the input pins, for analog, it stores the prev value, for digital, it  stores the prev value of the pin and optionally (for toggle) the prev state of the output.
-unsigned short usedRelays = 0x807F;                                                   //bit mask to specify which relays are used or not.
+int prevPinValues[PINTYPESIZE];                                     //used to keep track of the previous state of the input pins, for analog, it stores the prev value, for digital, it  stores the prev value of the pin .
+unsigned short usedRelays = 0xFFFF;                                                   //bit mask to specify which relays are used or not.
 unsigned int usedOutputs = 0;                                                        //bit mask to speivy which digitial outputs are used -> so we know how to activate them.
+bool curOutputValues[40] = {false, false, false, false, false, false, false, false, false, false, 		//we use a bigger area, so that the index can correspond to the pin value, makes lookups a lot faster. It does require a little calculation though, cause a part of the range has to be remapped to a smaller number.
+							false, false, false, false, false, false, false, false, false, false,
+							false, false, false, false, false, false, false, false, false, false, 
+							false, false, false, false, false, false, false, false, false, false};
 
 //required for the device
 void callback(char* topic, byte* payload, unsigned int length);
 EthernetClient ethClient;
 PubSubClient pubSub(mqttServer, 1883, callback, ethClient);
+
+#define ETHSTARTED 1
+#define DEVICECREATED 2
+#define SUBSCRIBED 3
+int initState = 0;			//keeps track of the current initialization state. so the device can start up as soon as possible and attempt to create network when possible, while already providing core functionality.
 
 
 //read all the configs from the eeprom.
@@ -234,7 +243,7 @@ void initPins()
 }
 
 //set up the ethernet connection
-void initNetwork()
+bool initNetwork()
 {
     byte mac[] = {  0x90, 0xA2, 0xDA, 0x0D, 0x8D, 0x3D };       // Adapt to your Arduino MAC Address 
     if (Ethernet.begin(mac) == 0)                             // Initialize the Ethernet connection:
@@ -242,49 +251,64 @@ void initNetwork()
         #ifdef DEBUG 
         Serial.println(F("DHCP failed,end"));
         #endif
-        while(true);                                            //we failed to connect, halt execution here. 
+        return false;
     }
-    delay(1000);                                            //give the Ethernet shield a second to initialize:
+    delay(400);                                            //give the Ethernet shield a second to initialize:
+	return true;
 }
 
 //prepare the device in the fog/cloud -> declare all the assets and the correct types
-void syncDevice()
+bool syncDevice()
 {
-    Device.Connect(&ethClient, httpServer);
-    Device.AddAsset(IOMAPID, "IO map", "link inputs with outputs.", true, "{\"type\": \"array\", \"items\":{\"type\":\"integer\"}}");   // Create the Digital Actuator asset for your device
-    Device.AddAsset(PINTYPESID, "pin types", "specify for each input pin if it is analog (A), button (B), toggle (T) or not used (any other).", true, "string"); 
-    Device.AddAsset(USEDRELAYSID, "used relays", "Specify which relays (outputs) are used, as a bitfield (16 bits)", true, "integer"); 
-    Device.AddAsset(OUTPUTSID, "used outputs", "Specify which digital outputs are used (20 bits)", true, "integer"); 
-    //Device.AddAsset(ERRORID, "last error", "the last error produced by the device (after bootup)", false, "string"); 
-    for(int i = 0; i < PINTYPESIZE; i++){
-        String label(i);
-        if(pinTypes[i] == 'A')
-            Device.AddAsset(inputs[i], "knob " + label, "an analog input pin", false, "integer"); 
-        else if(pinTypes[i] == 'B')
-            Device.AddAsset(inputs[i], "button " + label, "a push button input pin", false, "boolean"); 
-        else if(pinTypes[i] == 'T')
-            Device.AddAsset(inputs[i], "toggle " + label, "a toggle button input pin", false, "boolean"); 
-        else
-            Serial.print("invalid pin type: "); Serial.println(pinTypes[i]);
-    }
-    unsigned short relay = 1;
-    for(int i = 0 ; i < USEDRELAYSSIZE; i++) {
-        Serial.print(relay); Serial.println(" = relay, usedRelays & relays = "); Serial.println(relay & usedRelays);
-        if((relay & usedRelays) != 0){
-            String label(i);
-            Device.AddAsset(relays[i], "relays " + label, "an output relays", true, "boolean"); 
-        }
-        relay = relay << 1;
-    }
-    
-    unsigned int output = 1;
-    for(int i = 0 ; i < OUTPUTSSIZE; i++) {
-        if((output & usedOutputs) != 0){
-            String label(i);
-            Device.AddAsset(outputs[i], "output " + label, "an output pin", true, "boolean"); 
-        }
-        output = output << 1;
-    }
+    if(Device.Connect(&ethClient, httpServer) == true){
+		Device.AddAsset(IOMAPID, "IO map", "link inputs with outputs.", true, "{\"type\": \"array\", \"items\":{\"type\":\"integer\"}}");   // Create the Digital Actuator asset for your device
+		Device.AddAsset(PINTYPESID, "pin types", "specify for each input pin if it is analog (A), button (B), toggle (T) or not used (any other).", true, "string"); 
+		Device.AddAsset(USEDRELAYSID, "used relays", "Specify which relays (outputs) are used, as a bitfield (16 bits)", true, "integer"); 
+		Device.AddAsset(OUTPUTSID, "used outputs", "Specify which digital outputs are used (20 bits)", true, "integer"); 
+		//Device.AddAsset(ERRORID, "last error", "the last error produced by the device (after bootup)", false, "string"); 
+		for(int i = 0; i < PINTYPESIZE; i++){
+			String label(i);
+			if(pinTypes[i] == 'A')
+				Device.AddAsset(inputs[i], "knob " + label, "an analog input pin", false, "integer"); 
+			else if(pinTypes[i] == 'B')
+				Device.AddAsset(inputs[i], "button " + label, "a push button input pin", false, "boolean"); 
+			else if(pinTypes[i] == 'T')
+				Device.AddAsset(inputs[i], "toggle " + label, "a toggle button input pin", false, "boolean"); 
+			else
+				Serial.print("invalid pin type: "); Serial.println(pinTypes[i]);
+		}
+		unsigned short relay = 1;
+		for(int i = 0 ; i < USEDRELAYSSIZE; i++) {
+			Serial.print(relay); Serial.println(" = relay, usedRelays & relays = "); Serial.println(relay & usedRelays);
+			if((relay & usedRelays) != 0){
+				String label(i);
+				Device.AddAsset(relays[i], "relays " + label, "an output relays", true, "boolean"); 
+			}
+			relay = relay << 1;
+		}
+		
+		unsigned int output = 1;
+		for(int i = 0 ; i < OUTPUTSSIZE; i++) {
+			if((output & usedOutputs) != 0){
+				String label(i);
+				Device.AddAsset(outputs[i], "output " + label, "an output pin", true, "boolean"); 
+			}
+			output = output << 1;
+		}
+		initState = DEVICECREATED;
+		return true;
+	}
+	return false;
+}
+
+void setupNetwork(){
+	if(initNetwork() == true){
+		initState = ETHSTARTED;
+		if(syncDevice()){
+			if(Device.Subscribe(pubSub))                                   // make certain that we can receive message from the iot platform (activate mqtt)
+				initState = SUBSCRIBED;
+		}
+	}
 }
 
 void setup()
@@ -292,10 +316,20 @@ void setup()
     Serial.begin(9600);
     readConfigData();
     initPins();
-    
-    initNetwork();
-    syncDevice();
-    Device.Subscribe(pubSub);                                   // make certain that we can receive message from the iot platform (activate mqtt)
+	setupNetwork();
+}
+
+void checkNetworkSetup(){
+	if(initState == 0)
+		setupNetwork();
+	else if(initState == ETHSTARTED){
+		if(syncDevice()){
+			if(Device.Subscribe(pubSub))                                   // make certain that we can receive message from the iot platform (activate mqtt)
+				initState = SUBSCRIBED;
+		}
+	}
+	else if(initState == DEVICECREATED && Device.Subscribe(pubSub))
+		initState = SUBSCRIBED;
 }
                                                                 
 void loop()
@@ -324,21 +358,20 @@ void loop()
         }
         else if(pinTypes[i] == 'T'){
             bool value = digitalRead(inputs[i]);
-            bool* prevValues = (bool*)&(prevPinValues[i]);
-            if(value != prevValues[0]){
+            if(value != (bool)prevPinValues[i]){
                 if(value == 1){
                     #ifdef DEBUG 
                     Serial.print("value pin "); Serial.print(pinTypes[i]); Serial.print(" = "); Serial.println(value);
                     #endif
-                    prevValues[1] = !prevValues[1];
-                    doIOMapping(i, prevValues[1]);
-                    Device.Send(String(prevValues[1]), inputs[i]);
+                    doToggleIOMapping(i);
                 }
-                prevValues[0] = value;
+                prevPinValues[i] = value;
+                Device.Send(String(value), inputs[i]);
             }
         }
     }
     Device.Process(); 
+	checkNetworkSetup();	
 }
 
 //check the io map and if there is an output pin defined, send the new value to it.
@@ -348,8 +381,22 @@ void doIOMapping(byte ioMapIndex, bool value)
         #ifdef DEBUG 
         Serial.print("found mapping to activate: "); Serial.println(ioMap[ioMapIndex]);
         #endif
-        digitalWrite(ioMap[ioMapIndex], value);
+        SetOutputVal(ioMap[ioMapIndex], value);
         Device.Send(String(value), ioMap[ioMapIndex]);
+    }
+}
+
+//check the io map and if there is an output pin defined, send the new value to it.
+void doToggleIOMapping(byte ioMapIndex)
+{
+    if(ioMap[ioMapIndex] != -1){                //-1 = 255
+        #ifdef DEBUG 
+        Serial.print("found mapping to activate: "); Serial.println(ioMap[ioMapIndex]);
+        #endif
+		byte index = translatePinToOutputsIndex(ioMap[ioMapIndex]);
+		curOutputValues[index] = !curOutputValues[index];
+        digitalWrite(ioMap[ioMapIndex], curOutputValues[index]);          //change the actuator status to false
+        Device.Send(String(curOutputValues[index]), ioMap[ioMapIndex]);
     }
 }
 
@@ -361,8 +408,8 @@ int GetPinNr(char* topic, int topicLength)
     Serial.print("len: "); Serial.println(topicLength - 10 - sizeof(deviceId));
     Serial.print("content: "); Serial.println(topic[topicLength - 10 - sizeof(deviceId)]);
     #endif
-    if(topic[topicLength - 10 - sizeof(deviceId)] != '/'){
-        result += (topic[topicLength - 10 - sizeof(deviceId)] - 48) * 10;
+    if(topic[topicLength - 9 - sizeof(deviceId)] != '/'){
+        result += (topic[topicLength - 10] - 48) * 10;
     }   
     return result;
 }
@@ -377,6 +424,24 @@ String convertToStr(byte* payload, unsigned int length)
     msgString = String(message_buff);
     msgString.toLowerCase();                  //to make certain that our comparison later on works ok (it could be that a 'True' or 'False' was sent)
     return msgString;
+}
+
+//translates the pin nr (output pin or relay) to an index nr of the list of all outputs, which stores the current values.
+byte translatePinToOutputsIndex(byte pinNr){
+	byte index;
+	if(pinNr <= CONTROLLINO_PLUS)
+		index = pinNr - 2;
+	else if(pinNr <= CONTROLLINO_R15)
+		index = pinNr - (2 + 6);
+	else 
+		index = pinNr - (2 + 6 + 4);
+	return index;
+}
+
+void SetOutputVal(byte pinNr, bool value){
+	digitalWrite(pinNr, value);          //change the actuator status to false
+	byte index = translatePinToOutputsIndex(pinNr);
+	curOutputValues[index] = value;
 }
 
 // Callback function: handles messages that were sent from the iot platform to this device.
@@ -409,9 +474,9 @@ void callback(char* topic, byte* payload, unsigned int length)
     else{
         //String msgString = convertToStr(payload);
         if (msgString == "false")                       //send to an output pin.
-            digitalWrite(pinNr, LOW);          //change the actuator status to false
+		    SetOutputVal(pinNr, LOW);
         else if (msgString == "true")
-            digitalWrite(pinNr, HIGH);              //change the actuator status to true
+            SetOutputVal(pinNr, HIGH);              //change the actuator status to true
     }
     Device.Send(msgString, pinNr);    
 }
