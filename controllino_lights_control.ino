@@ -8,10 +8,12 @@
 #include <Controllino.h>
 
 #define DEBUG                                   //turn off to remove serial logging so it runs faster and takes up less mem.
-
+//uncomment  if the device needs to recreate all it's assets upon startup (ex: when placed into new account).
+#define CREATEONSTART 					
 
 // Enter below your client credentials. 
 //These credentials can be found in the configuration pane under your device in the smartliving.io website 
+
 
 #define deviceId "jfxvrU9wq41ofxkBbGYqMBC" // Your device id comes here
 #define clientId "KardCard" // Your client id comes here;
@@ -54,12 +56,12 @@ byte relays[] = {CONTROLLINO_R0, CONTROLLINO_R1, CONTROLLINO_R2, CONTROLLINO_R3,
 //#define ERRORID 95
         
 //maps input pins with output pins      
-//byte ioMap[IOMAPSIZE] = {22, 23, 24, 25, 26, 27, 28, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-byte ioMap[IOMAPSIZE] = {CONTROLLINO_R10, CONTROLLINO_R11, CONTROLLINO_R15, 25, 26, 27, 28, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-char pinTypes[PINTYPESIZE + 1] = "TTTTTTTNNNNNNNNNNNNNN";               //specify for each input pin if it is analog, digital button or digital toggle, or not used
+//byte ioMap[IOMAPSIZE] = {22, 23, 24, 25, 26, 27, 28, 0xFF, 0xFF, 30, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+byte ioMap[IOMAPSIZE] = {CONTROLLINO_R6, CONTROLLINO_R7, 0xFF, 0xFF, CONTROLLINO_R5, 0xFF, CONTROLLINO_R12, CONTROLLINO_R13,0xFF , CONTROLLINO_R14, CONTROLLINO_R15, 0xFF, CONTROLLINO_R10, CONTROLLINO_R11, 0xFF, CONTROLLINO_R1, CONTROLLINO_R8, 0xFF, 0xFF, CONTROLLINO_R2, CONTROLLINO_R0};
+char pinTypes[PINTYPESIZE + 1] = "TTTTTTTTTTTBTTTTTTTTT";               //specify for each input pin if it is analog, digital button or digital toggle, or not used
 int prevPinValues[PINTYPESIZE];                                     //used to keep track of the previous state of the input pins, for analog, it stores the prev value, for digital, it  stores the prev value of the pin .
 unsigned short usedRelays = 0xFFFF;                                                   //bit mask to specify which relays are used or not.
-unsigned int usedOutputs = 0;                                                        //bit mask to speivy which digitial outputs are used -> so we know how to activate them.
+unsigned int usedOutputs = 7;                                                        //bit mask to speivy which digitial outputs are used -> so we know how to activate them.
 bool curOutputValues[40] = {false, false, false, false, false, false, false, false, false, false, 		//we use a bigger area, so that the index can correspond to the pin value, makes lookups a lot faster. It does require a little calculation though, cause a part of the range has to be remapped to a smaller number.
 							false, false, false, false, false, false, false, false, false, false,
 							false, false, false, false, false, false, false, false, false, false, 
@@ -311,12 +313,27 @@ void setupNetwork(){
 	}
 }
 
+void setupNetworkFast(){
+	if(initNetwork() == true){
+		initState = ETHSTARTED;
+		if(Device.Connect(&ethClient, httpServer) == true){
+			initState = DEVICECREATED;
+			if(Device.Subscribe(pubSub))                                   // make certain that we can receive message from the iot platform (activate mqtt)
+				initState = SUBSCRIBED;
+		}
+	}
+}
+
 void setup()
 {    
     Serial.begin(9600);
     readConfigData();
     initPins();
+	#ifdef CREATEONSTART
 	setupNetwork();
+	#else
+	setupNetworkFast();
+ #endif
 }
 
 void checkNetworkSetup(){
@@ -331,6 +348,8 @@ void checkNetworkSetup(){
 	else if(initState == DEVICECREATED && Device.Subscribe(pubSub))
 		initState = SUBSCRIBED;
 }
+
+
                                                                 
 void loop()
 {
@@ -353,7 +372,10 @@ void loop()
                 #endif
                 prevPinValues[i] = (int)value;
                 doIOMapping(i, value);
-                Device.Send(String(value), inputs[i]);
+                if(value == 1)
+                   Device.Send("true", inputs[i]);
+                else
+                  Device.Send("false", inputs[i]);
             }
         }
         else if(pinTypes[i] == 'T'){
@@ -366,7 +388,10 @@ void loop()
                     doToggleIOMapping(i);
                 }
                 prevPinValues[i] = value;
-                Device.Send(String(value), inputs[i]);
+                if(value == 1)
+                   Device.Send("true", inputs[i]);
+                else
+                  Device.Send("false", inputs[i]);
             }
         }
     }
@@ -382,7 +407,10 @@ void doIOMapping(byte ioMapIndex, bool value)
         Serial.print("found mapping to activate: "); Serial.println(ioMap[ioMapIndex]);
         #endif
         SetOutputVal(ioMap[ioMapIndex], value);
-        Device.Send(String(value), ioMap[ioMapIndex]);
+		if(value == 1)
+		   Device.Send("true", ioMap[ioMapIndex]);
+		else
+		  Device.Send("false", ioMap[ioMapIndex]);
     }
 }
 
