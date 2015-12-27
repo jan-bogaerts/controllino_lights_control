@@ -15,9 +15,9 @@
 //These credentials can be found in the configuration pane under your device in the smartliving.io website 
 
 
-#define deviceId "jfxvrU9wq41ofxkBbGYqMBC" // Your device id comes here
-#define clientId "KardCard" // Your client id comes here;
-#define clientKey "42pprmkiubr" // Your client key comes here;
+#define deviceId "" // Your device id comes here
+#define clientId "" // Your client id comes here;
+#define clientKey "" // Your client key comes here;
 
 //IPAddress localMqttServer(192, 168, 1, 121);
 
