@@ -61,7 +61,7 @@ byte ioMap[IOMAPSIZE] = {CONTROLLINO_R6, CONTROLLINO_R7, 0xFF, 0xFF, CONTROLLINO
 char pinTypes[PINTYPESIZE + 1] = "TTTTTTTTTTTBTTTTTTTTT";               //specify for each input pin if it is analog, digital button or digital toggle, or not used
 int prevPinValues[PINTYPESIZE];                                     //used to keep track of the previous state of the input pins, for analog, it stores the prev value, for digital, it  stores the prev value of the pin .
 unsigned short usedRelays = 0xFFFF;                                                   //bit mask to specify which relays are used or not.
-unsigned int usedOutputs = 7;                                                        //bit mask to speivy which digitial outputs are used -> so we know how to activate them.
+unsigned int usedOutputs = 0xF;                                                        //bit mask to speivy which digitial outputs are used -> so we know how to activate them.
 bool curOutputValues[40] = {false, false, false, false, false, false, false, false, false, false, 		//we use a bigger area, so that the index can correspond to the pin value, makes lookups a lot faster. It does require a little calculation though, cause a part of the range has to be remapped to a smaller number.
 							false, false, false, false, false, false, false, false, false, false,
 							false, false, false, false, false, false, false, false, false, false, 
