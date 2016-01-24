@@ -55,7 +55,7 @@ byte relays[] = {CONTROLLINO_R0, CONTROLLINO_R1, CONTROLLINO_R2, CONTROLLINO_R3,
         
 //maps input pins with output pins      
 //byte ioMap[IOMAPSIZE] = {22, 23, 24, 25, 26, 27, 28, 0xFF, 0xFF, 30, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-byte ioMap[IOMAPSIZE] = {CONTROLLINO_R6, CONTROLLINO_R7, 0xFF, 0xFF, CONTROLLINO_R5, 0xFF, CONTROLLINO_R12, CONTROLLINO_R13,0xFF , CONTROLLINO_R14, CONTROLLINO_R15, CONTROLLINO_D0, CONTROLLINO_R10, CONTROLLINO_R11, 0xFF, CONTROLLINO_R1, CONTROLLINO_R8, 0xFF, 0xFF, CONTROLLINO_R2, CONTROLLINO_R0};
+byte ioMap[IOMAPSIZE] = {CONTROLLINO_R6, CONTROLLINO_R7, 0xFF, 0xFF, CONTROLLINO_R5, CONTROLLINO_D1, CONTROLLINO_R12, CONTROLLINO_R13,0xFF , CONTROLLINO_R14, CONTROLLINO_R15, CONTROLLINO_D0, CONTROLLINO_R10, CONTROLLINO_R11, 0xFF, CONTROLLINO_R1, CONTROLLINO_R8, 0xFF, 0xFF, CONTROLLINO_R2, CONTROLLINO_R0};
 char pinTypes[PINTYPESIZE + 1] = "TTTTTTTTTTTBTTTTTTTTT";               //specify for each input pin if it is analog, digital button or digital toggle, or not used
 int prevPinValues[PINTYPESIZE];                                     //used to keep track of the previous state of the input pins, for analog, it stores the prev value, for digital, it  stores the prev value of the pin .
 unsigned short usedRelays = 0xFFFF;                                                   //bit mask to specify which relays are used or not.
