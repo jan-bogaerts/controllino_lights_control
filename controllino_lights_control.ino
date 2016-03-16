@@ -3,6 +3,7 @@
 
 #include <PubSubClient.h>
 #include <ATT_IOT.h>                            //AllThingsTalk IoT library
+#include <NW_WatchDog.h>
 #include <SPI.h>                                //required to have support for signed/unsigned long type..
 #include <EEPROM.h>                             //get/store configs
 #include <Controllino.h>
@@ -17,11 +18,10 @@
 
 #include "keys.h"
 
-//IPAddress localMqttServer(192, 168, 1, 121);
-
 ATTDevice Device(deviceId, clientId, clientKey);            //create the object that provides the connection to the cloud to manager the device.
 char httpServer[] = "api.smartliving.io";                   // HTTP API Server host                  
 char mqttServer[] = "broker.smartliving.io";            // MQTT Server Address 
+IPAddress localMqttServer(192, 168, 1, 108);
 
 
 byte inputs[] = {CONTROLLINO_A0, CONTROLLINO_A1, CONTROLLINO_A2, CONTROLLINO_A3, CONTROLLINO_A4,
@@ -69,6 +69,7 @@ bool curOutputValues[40] = {false, false, false, false, false, false, false, fal
 void callback(char* topic, byte* payload, unsigned int length);
 EthernetClient ethClient;
 PubSubClient pubSub(mqttServer, 1883, callback, ethClient);
+NW_WatchDog WatchDog(pubSub, deviceId, clientId);
 
 #define ETHSTARTED 1
 #define DEVICECREATED 2
@@ -257,10 +258,19 @@ bool initNetwork()
 	return true;
 }
 
+//first try to subscribe to local, otherwise to cloud.
+//void subscribe()
+//{
+	//pubSub.
+//	if(Device.Subscribe(pubSub, localMqttUser, localMqttPwd))                                   // make certain that we can receive message from the iot platform (activate mqtt)
+//		initState = SUBSCRIBED;
+//}
+
 //prepare the device in the fog/cloud -> declare all the assets and the correct types
 bool syncDevice()
 {
     if(Device.Connect(&ethClient, httpServer) == true){
+		WatchDog.Setup(Device);
 		Device.AddAsset(IOMAPID, "IO map", "link inputs with outputs.", true, "{\"type\": \"array\", \"items\":{\"type\":\"integer\"}}");   // Create the Digital Actuator asset for your device
 		Device.AddAsset(PINTYPESID, "pin types", "specify for each input pin if it is analog (A), button (B), toggle (T) or not used (any other).", true, "string"); 
 		Device.AddAsset(USEDRELAYSID, "used relays", "Specify which relays (outputs) are used, as a bitfield (16 bits)", true, "integer"); 
@@ -301,37 +311,54 @@ bool syncDevice()
 	return false;
 }
 
+void trySubscribe(){
+	if(Device.Subscribe(pubSub))                                   // make certain that we can receive message from the iot platform (activate mqtt)
+	{
+		initState = SUBSCRIBED;
+		for(int i = 0; i < sizeof(relays)/sizeof(relays[0]); i++){
+			if(curOutputValues[relays[i]] == true)
+				Device.Send("true", relays[i]);
+			else
+				Device.Send("false", relays[i]);
+		}
+		
+		for(int i = 0; i < sizeof(outputs)/sizeof(outputs[0]); i++){
+			if(curOutputValues[outputs[i]] == true)
+				Device.Send("true", outputs[i]);
+			else
+				Device.Send("false", outputs[i]);
+		}
+		WatchDog.Ping();												//start the watchdog
+	}
+}
+
 void setupNetwork(){
 	if(initNetwork() == true){
 		initState = ETHSTARTED;
-		if(syncDevice()){
-			if(Device.Subscribe(pubSub))                                   // make certain that we can receive message from the iot platform (activate mqtt)
-				initState = SUBSCRIBED;
-		}
+		if(syncDevice())
+			trySubscribe();
 	}
 }
 
 void setupNetworkFast(){
 	if(initNetwork() == true){
-		initState = ETHSTARTED;
-		if(Device.Connect(&ethClient, httpServer) == true){
-			initState = DEVICECREATED;
-			if(Device.Subscribe(pubSub))                                   // make certain that we can receive message from the iot platform (activate mqtt)
-				initState = SUBSCRIBED;
-		}
+		initState = DEVICECREATED;
+		trySubscribe();
 	}
 }
 
 void setup()
 {    
-    Serial.begin(9600);
+    Serial.begin(57600);
+	for(int i = 0; i < PINTYPESIZE; i++)							//init array to all 0 -> all lights are off when we start up.
+		prevPinValues[i] = 0;
     readConfigData();
     initPins();
 	#ifdef CREATEONSTART
 	setupNetwork();
 	#else
 	setupNetworkFast();
- #endif
+	#endif
 }
 
 void checkNetworkSetup(){
@@ -343,8 +370,10 @@ void checkNetworkSetup(){
 				initState = SUBSCRIBED;
 		}
 	}
-	else if(initState == DEVICECREATED && Device.Subscribe(pubSub))
+	else if(initState == DEVICECREATED && Device.Subscribe(pubSub)){
 		initState = SUBSCRIBED;
+		WatchDog.Ping();												//start the watchdog
+	}
 }
 
 
@@ -394,6 +423,7 @@ void loop()
         }
     }
     Device.Process(); 
+	WatchDog.CheckPing();
 	checkNetworkSetup();	
 }
 
@@ -405,7 +435,7 @@ void doIOMapping(byte ioMapIndex, bool value)
         Serial.print("found mapping to activate: "); Serial.println(ioMap[ioMapIndex]);
         #endif
         SetOutputVal(ioMap[ioMapIndex], value);
-		if(value == 1)
+		if(value == true)
 		   Device.Send("true", ioMap[ioMapIndex]);
 		else
 		  Device.Send("false", ioMap[ioMapIndex]);
@@ -417,28 +447,18 @@ void doToggleIOMapping(byte ioMapIndex)
 {
     if(ioMap[ioMapIndex] != -1){                //-1 = 255
         #ifdef DEBUG 
-        Serial.print("found mapping to activate: "); Serial.println(ioMap[ioMapIndex]);
+        Serial.print("found mapping, activate output pin: "); Serial.println(ioMap[ioMapIndex]);
         #endif
 		byte index = translatePinToOutputsIndex(ioMap[ioMapIndex]);
 		curOutputValues[index] = !curOutputValues[index];
         digitalWrite(ioMap[ioMapIndex], curOutputValues[index]);          //change the actuator status to false
-        Device.Send(String(curOutputValues[index]), ioMap[ioMapIndex]);
+		if (curOutputValues[index])
+			Device.Send("true", ioMap[ioMapIndex]);
+		else
+			Device.Send("false", ioMap[ioMapIndex]);
     }
 }
 
-//returns the pin nr found in the topic
-int GetPinNr(char* topic, int topicLength)
-{
-    int result = topic[topicLength - 9] - 48;
-    #ifdef DEBUG 
-    Serial.print("len: "); Serial.println(topicLength - 10 - sizeof(deviceId));
-    Serial.print("content: "); Serial.println(topic[topicLength - 10 - sizeof(deviceId)]);
-    #endif
-    if(topic[topicLength - 9 - sizeof(deviceId)] != '/'){
-        result += (topic[topicLength - 10] - 48) * 10;
-    }   
-    return result;
-}
 
 String convertToStr(byte* payload, unsigned int length)
 {
@@ -473,7 +493,7 @@ void SetOutputVal(byte pinNr, bool value){
 // Callback function: handles messages that were sent from the iot platform to this device.
 void callback(char* topic, byte* payload, unsigned int length) 
 { 
-    int pinNr = GetPinNr(topic, strlen(topic));
+    int pinNr = Device.GetPinNr(topic, strlen(topic));
 
     String msgString = convertToStr(payload, length);
     #ifdef DEBUG
@@ -481,29 +501,31 @@ void callback(char* topic, byte* payload, unsigned int length)
     Serial.print("topic: "); Serial.println(topic);
     #endif
 
-    if (pinNr == IOMAPID)  
-        storeioMap(payload);
-    else if(pinNr == PINTYPESID){
-        storePinTypes((char*)payload);
-        syncDevice();
-    }
-    else if(pinNr == USEDRELAYSID){
-        //String msgString = convertToStr(payload, length);
-        storeUsedRelays((short)msgString.toInt());
-        syncDevice();
-    }
-    else if(pinNr == OUTPUTSID){
-        //String msgString = convertToStr(payload);
-        storeOutputs((int)msgString.toInt());
-        syncDevice();
-    }
-    else{
-        //String msgString = convertToStr(payload);
-        if (msgString == "false")                       //send to an output pin.
-		    SetOutputVal(pinNr, LOW);
-        else if (msgString == "true")
-            SetOutputVal(pinNr, HIGH);              //change the actuator status to true
-    }
+	if(!WatchDog.IsWatchDog(pinNr, msgString)){
+		if (pinNr == IOMAPID)  
+			storeioMap(payload);
+		else if(pinNr == PINTYPESID){
+			storePinTypes((char*)payload);
+			syncDevice();
+		}
+		else if(pinNr == USEDRELAYSID){
+			//String msgString = convertToStr(payload, length);
+			storeUsedRelays((short)msgString.toInt());
+			syncDevice();
+		}
+		else if(pinNr == OUTPUTSID){
+			//String msgString = convertToStr(payload);
+			storeOutputs((int)msgString.toInt());
+			syncDevice();
+		}
+		else{
+			//String msgString = convertToStr(payload);
+			if (msgString == "false")                       //send to an output pin.
+				SetOutputVal(pinNr, LOW);
+			else if (msgString == "true")
+				SetOutputVal(pinNr, HIGH);              //change the actuator status to true
+		}
+	}
     Device.Send(msgString, pinNr);    
 }
 
