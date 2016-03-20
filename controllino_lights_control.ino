@@ -423,7 +423,8 @@ void loop()
         }
     }
     Device.Process(); 
-	WatchDog.CheckPing();
+	if(initState == SUBSCRIBED && WatchDog.CheckPing() == false)		//when we are subscribed, check for network status.
+		initState = DEVICECREATED;								//if we lost the connection, reset it the state, so that the connection is recreated.
 	checkNetworkSetup();	
 }
 
