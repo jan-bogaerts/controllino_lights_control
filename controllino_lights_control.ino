@@ -7,10 +7,11 @@
 #include <SPI.h>                                //required to have support for signed/unsigned long type..
 #include <EEPROM.h>                             //get/store configs
 #include <Controllino.h>
+#include <ArduinoJson.h>
 
 #define DEBUG                                   //turn off to remove serial logging so it runs faster and takes up less mem.
 //uncomment  if the device needs to recreate all it's assets upon startup (ex: when placed into new account).
-//#define CREATEONSTART 					
+#define CREATEONSTART 					
 
 // Enter below your client credentials. 
 //These credentials can be found in the configuration pane under your device in the smartliving.io website 
@@ -153,7 +154,7 @@ void storeUsedRelays(short newValue)
 
 
 //checks if the 2 arrays are different, if so, the new array is stored into the new one and into the eeprom
-void storePinTypes(char *newValues)
+void storePinTypes(const char *newValues)
 {
     #ifdef DEBUG 
     Serial.println("storing pintypes");
@@ -181,18 +182,26 @@ void storePinTypes(char *newValues)
 
 
 //checks if the 2 arrays are different, if so, the new array is stored into the new one and into the eeprom
-void storeioMap(byte *newValues)
+void storeioMap(const char *newValues)
 {
     #ifdef DEBUG 
     Serial.println("storing ioMap");
     #endif
+	
+	StaticJsonBuffer<200> jsonBuffer;						//we receive a json array, so we need to convert it into an array of integers
+	JsonArray& root = jsonBuffer.parseArray(newValues);
+	if (!root.success()) {
+		Serial.println("parseArray() failed: can't store iomap");
+		return;
+	  }
+	
     bool different = false;
     for(int i = 0; i < IOMAPSIZE; i++){
-        if(newValues[i] != ioMap[i]){
+        if(root[i] != ioMap[i]){
             different = true;
-            ioMap[i] = newValues[i];
+            ioMap[i] = root[i];
             #ifdef DEBUG 
-            Serial.print(i); Serial.print(" = "); Serial.println(newValues[i]);
+            Serial.print(i); Serial.print(" = "); Serial.println(ioMap[i]);
             #endif
         }
     }
@@ -504,9 +513,9 @@ void callback(char* topic, byte* payload, unsigned int length)
 
 	if(!WatchDog.IsWatchDog(pinNr, msgString)){
 		if (pinNr == IOMAPID)  
-			storeioMap(payload);
+			storeioMap(msgString.c_str());
 		else if(pinNr == PINTYPESID){
-			storePinTypes((char*)payload);
+			storePinTypes(msgString.c_str());
 			syncDevice();
 		}
 		else if(pinNr == USEDRELAYSID){
