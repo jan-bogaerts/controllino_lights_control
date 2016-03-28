@@ -1,6 +1,6 @@
 # controllino-lights-control
 
-With this sketch, you can use a controllino [controllino unit](http://controllino.cc/) as part of a home automation system with a [pyGate](https://github.com/ATT-JBO/pyGate) at it's center. 
+With this sketch, you can use a [controllino unit](http://controllino.cc/) as part of a home automation system with a [pyGate](https://github.com/ATT-JBO/pyGate) at it's center. 
 The following configurations can be set, either by editing the sketch or by using the [configuration tool](https://github.com/ATT-JBO/CLC-configurator):
 
 - which inputs, outputs and relays are active. 
