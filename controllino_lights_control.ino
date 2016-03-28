@@ -7,22 +7,17 @@
 #include <SPI.h>                                //required to have support for signed/unsigned long type..
 #include <EEPROM.h>                             //get/store configs
 #include <Controllino.h>
-#include <ArduinoJson.h>
 
 #define DEBUG                                   //turn off to remove serial logging so it runs faster and takes up less mem.
 //uncomment  if the device needs to recreate all it's assets upon startup (ex: when placed into new account).
 #define CREATEONSTART 					
 
-// Enter below your client credentials. 
-//These credentials can be found in the configuration pane under your device in the smartliving.io website 
-
-
 #include "keys.h"
 
-ATTDevice Device(deviceId, clientId, clientKey);            //create the object that provides the connection to the cloud to manager the device.
-char httpServer[] = "api.smartliving.io";                   // HTTP API Server host                  
-char mqttServer[] = "broker.smartliving.io";            // MQTT Server Address 
-IPAddress localMqttServer(192, 168, 1, 108);
+ATTDevice Device(deviceId, clientId, clientKey);            	//create the object that provides the connection to the cloud to manager the device.
+char httpServer[] = "api.smartliving.io";                   	// HTTP API Server host                  
+char mqttServer[] = "broker.smartliving.io";            		// MQTT Server Address 
+//IPAddress localMqttServer(192, 168, 1, 108);
 
 
 byte inputs[] = {CONTROLLINO_A0, CONTROLLINO_A1, CONTROLLINO_A2, CONTROLLINO_A3, CONTROLLINO_A4,
@@ -52,15 +47,15 @@ byte relays[] = {CONTROLLINO_R0, CONTROLLINO_R1, CONTROLLINO_R2, CONTROLLINO_R3,
 #define PINTYPESID 98
 #define USEDRELAYSID 97
 #define OUTPUTSID 94
+#define APPID 90
 //#define ERRORID 95
         
 //maps input pins with output pins      
-//byte ioMap[IOMAPSIZE] = {22, 23, 24, 25, 26, 27, 28, 0xFF, 0xFF, 30, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-byte ioMap[IOMAPSIZE] = {CONTROLLINO_R6, CONTROLLINO_R7, 0xFF, 0xFF, CONTROLLINO_R5, CONTROLLINO_D1, CONTROLLINO_R12, CONTROLLINO_R13,0xFF , CONTROLLINO_R14, CONTROLLINO_R15, CONTROLLINO_D0, CONTROLLINO_R10, CONTROLLINO_R11, 0xFF, CONTROLLINO_R1, CONTROLLINO_R8, 0xFF, 0xFF, CONTROLLINO_R2, CONTROLLINO_R0};
-char pinTypes[PINTYPESIZE + 1] = "TTTTTTTTTTTBTTTTTTTTT";               //specify for each input pin if it is analog, digital button or digital toggle, or not used
-int prevPinValues[PINTYPESIZE];                                     //used to keep track of the previous state of the input pins, for analog, it stores the prev value, for digital, it  stores the prev value of the pin .
-unsigned short usedRelays = 0xFFFF;                                                   //bit mask to specify which relays are used or not.
-unsigned int usedOutputs = 0xF;                                                        //bit mask to speivy which digitial outputs are used -> so we know how to activate them.
+byte ioMap[IOMAPSIZE] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,0xFF , 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+char pinTypes[PINTYPESIZE + 1] = "DDDDDDDDDDDDDDDDDDDDD";               								//specify for each input pin if it is analog, digital button or digital toggle, or not used
+int prevPinValues[PINTYPESIZE];                                     									//used to keep track of the previous state of the input pins, for analog, it stores the prev value, for digital, it  stores the prev value of the pin .
+unsigned short usedRelays = 0xFFFF;                                                   					//bit mask to specify which relays are used or not.
+unsigned int usedOutputs = 0xF;                                                        					//bit mask to speivy which digitial outputs are used -> so we know how to activate them.
 bool curOutputValues[40] = {false, false, false, false, false, false, false, false, false, false, 		//we use a bigger area, so that the index can correspond to the pin value, makes lookups a lot faster. It does require a little calculation though, cause a part of the range has to be remapped to a smaller number.
 							false, false, false, false, false, false, false, false, false, false,
 							false, false, false, false, false, false, false, false, false, false, 
@@ -113,6 +108,7 @@ void readConfigData()
         poututs[0] = EEPROM.read( 3 + IOMAPSIZE + PINTYPESIZE);
         poututs[1] = EEPROM.read( 4 + IOMAPSIZE + PINTYPESIZE);
         poututs[2] = EEPROM.read( 5 + IOMAPSIZE + PINTYPESIZE);
+		poututs[3] = EEPROM.read( 6 + IOMAPSIZE + PINTYPESIZE);
         #ifdef DEBUG 
         Serial.print("used digital outputs: "); Serial.println(usedOutputs, HEX);
         #endif
@@ -120,7 +116,7 @@ void readConfigData()
 }
 
 //stores the new definition of active outputs into global mem and flash (if changed)
-void storeOutputs(int newValue)
+void storeOutputs(unsigned int newValue)
 {
     if(newValue != usedOutputs)
     {
@@ -132,12 +128,13 @@ void storeOutputs(int newValue)
         EEPROM.write(3 + IOMAPSIZE + PINTYPESIZE, poututs[0]);
         EEPROM.write(4 + IOMAPSIZE + PINTYPESIZE, poututs[1]);
         EEPROM.write(5 + IOMAPSIZE + PINTYPESIZE, poututs[2]);
+		EEPROM.write(6 + IOMAPSIZE + PINTYPESIZE, poututs[3]);
         EEPROM.write(0, 1);                                     //indicate that the eeprom has memory stored
     }
 }
 
 //stores the new definition of used relays into global mem and flash (if changed)
-void storeUsedRelays(short newValue)
+void storeUsedRelays(unsigned short newValue)
 {
     if(newValue != usedRelays)
     {
@@ -181,25 +178,39 @@ void storePinTypes(const char *newValues)
 }
 
 
+bool parseArray(const char *newValues, int* result){
+  byte curResult = 0;
+  char * ptr;
+  if (*newValues != '[') return false;
+  newValues++;      										//first char = [
+  result[curResult++] = strtol(newValues, &ptr, 10);
+  while(*ptr != 0 && *ptr != ']'){
+    newValues = ptr + 1;
+    result[curResult++] = strtol(newValues, &ptr, 10);
+    if(*ptr == ']') return true;                        	//found the end.
+  }
+  return false;
+}
+
+
 //checks if the 2 arrays are different, if so, the new array is stored into the new one and into the eeprom
-void storeioMap(const char *newValues)
+bool storeioMap(const char *newValues)
 {
     #ifdef DEBUG 
     Serial.println("storing ioMap");
     #endif
 	
-	StaticJsonBuffer<200> jsonBuffer;						//we receive a json array, so we need to convert it into an array of integers
-	JsonArray& root = jsonBuffer.parseArray(newValues);
-	if (!root.success()) {
+	int newMap[IOMAPSIZE];
+	if (!parseArray(newValues, newMap)) {
 		Serial.println("parseArray() failed: can't store iomap");
-		return;
+		return false;
 	  }
 	
     bool different = false;
     for(int i = 0; i < IOMAPSIZE; i++){
-        if(root[i] != ioMap[i]){
+        if(newMap[i] != ioMap[i]){
             different = true;
-            ioMap[i] = root[i];
+            ioMap[i] = newMap[i];
             #ifdef DEBUG 
             Serial.print(i); Serial.print(" = "); Serial.println(ioMap[i]);
             #endif
@@ -214,6 +225,7 @@ void storeioMap(const char *newValues)
         }
         EEPROM.write(0, 1);                                     //indicate that the eeprom has memory stored
     }
+	return true;
 }
 
 
@@ -256,14 +268,14 @@ void initPins()
 bool initNetwork()
 {
     byte mac[] = {  0x90, 0xA2, 0xDA, 0x0D, 0x8D, 0x3D };       // Adapt to your Arduino MAC Address 
-    if (Ethernet.begin(mac) == 0)                             // Initialize the Ethernet connection:
+    if (Ethernet.begin(mac) == 0)                             	// Initialize the Ethernet connection:
     { 
         #ifdef DEBUG 
         Serial.println(F("DHCP failed,end"));
         #endif
         return false;
     }
-    delay(400);                                            //give the Ethernet shield a second to initialize:
+    delay(100);                                            		//give the Ethernet shield a second to initialize:
 	return true;
 }
 
@@ -280,6 +292,7 @@ bool syncDevice()
 {
     if(Device.Connect(&ethClient, httpServer) == true){
 		WatchDog.Setup(Device);
+		Device.AddAsset(APPID, "application id", "Identify the application.", false, "string");
 		Device.AddAsset(IOMAPID, "IO map", "link inputs with outputs.", true, "{\"type\": \"array\", \"items\":{\"type\":\"integer\"}}");   // Create the Digital Actuator asset for your device
 		Device.AddAsset(PINTYPESID, "pin types", "specify for each input pin if it is analog (A), button (B), toggle (T) or not used (any other).", true, "string"); 
 		Device.AddAsset(USEDRELAYSID, "used relays", "Specify which relays (outputs) are used, as a bitfield (16 bits)", true, "integer"); 
@@ -337,6 +350,16 @@ void trySubscribe(){
 			else
 				Device.Send("false", outputs[i]);
 		}
+		for(int i = 0; i < PINTYPESIZE; i++){
+			if(pinTypes[i] == 'B' || pinTypes[i] == 'T')
+				Device.Send("false", inputs[i]);
+		}
+		
+		
+		Device.Send("Controllino mega - light control", APPID);			//update the application id so that the mobile client can discover the device.
+		Device.Send(pinTypes, PINTYPESID);
+		Device.Send(String(usedRelays), USEDRELAYSID);
+		Device.Send(String(usedOutputs), OUTPUTSID);
 		WatchDog.Ping();												//start the watchdog
 	}
 }
@@ -411,7 +434,7 @@ void loop()
                 if(value == 1)
                    Device.Send("true", inputs[i]);
                 else
-                  Device.Send("false", inputs[i]);
+                   Device.Send("false", inputs[i]);
             }
         }
         else if(pinTypes[i] == 'T'){
@@ -478,7 +501,6 @@ String convertToStr(byte* payload, unsigned int length)
     message_buff[length] = '\0';                      //make certain that it ends with a null           
           
     msgString = String(message_buff);
-    msgString.toLowerCase();                  //to make certain that our comparison later on works ok (it could be that a 'True' or 'False' was sent)
     return msgString;
 }
 
@@ -500,6 +522,13 @@ void SetOutputVal(byte pinNr, bool value){
 	curOutputValues[index] = value;
 }
 
+void resyncDevice(){
+	Device.Close();
+	initState = ETHSTARTED;				//reset the state so that we can start over correctly again.
+	if(syncDevice())
+		trySubscribe();
+}
+
 // Callback function: handles messages that were sent from the iot platform to this device.
 void callback(char* topic, byte* payload, unsigned int length) 
 { 
@@ -509,27 +538,27 @@ void callback(char* topic, byte* payload, unsigned int length)
     #ifdef DEBUG
     Serial.print("Payload: "); Serial.println(msgString);
     Serial.print("topic: "); Serial.println(topic);
+	Serial.print("pin: "); Serial.println(pinNr);
     #endif
 
 	if(!WatchDog.IsWatchDog(pinNr, msgString)){
-		if (pinNr == IOMAPID)  
-			storeioMap(msgString.c_str());
+		if (pinNr == IOMAPID){  
+			if(!storeioMap(msgString.c_str())) return;				//if we failed to store the iomap, don't reply back to the server: something went wrong.
+		}
 		else if(pinNr == PINTYPESID){
 			storePinTypes(msgString.c_str());
-			syncDevice();
+			resyncDevice();
 		}
 		else if(pinNr == USEDRELAYSID){
-			//String msgString = convertToStr(payload, length);
-			storeUsedRelays((short)msgString.toInt());
-			syncDevice();
+			storeUsedRelays((unsigned short)msgString.toInt());
+			resyncDevice();
 		}
 		else if(pinNr == OUTPUTSID){
-			//String msgString = convertToStr(payload);
-			storeOutputs((int)msgString.toInt());
-			syncDevice();
+			storeOutputs((unsigned int)msgString.toInt());		//toInt() returns a long, so we are save with the unsigned int.
+			resyncDevice();
 		}
 		else{
-			//String msgString = convertToStr(payload);
+			msgString.toLowerCase();                  //to make certain that our comparison later on works ok (it could be that a 'True' or 'False' was sent)
 			if (msgString == "false")                       //send to an output pin.
 				SetOutputVal(pinNr, LOW);
 			else if (msgString == "true")
