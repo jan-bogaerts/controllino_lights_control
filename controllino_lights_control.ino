@@ -7,6 +7,7 @@
 #include <SPI.h>                                //required to have support for signed/unsigned long type..
 #include <EEPROM.h>                             //get/store configs
 #include <Controllino.h>
+#include <avr/wdt.h>							//for watchdog	
 
 #define DEBUG                                   //turn off to remove serial logging so it runs faster and takes up less mem.
 //uncomment  if the device needs to recreate all it's assets upon startup (ex: when placed into new account).
@@ -298,6 +299,7 @@ bool syncDevice()
 		Device.AddAsset(USEDRELAYSID, "used relays", "Specify which relays (outputs) are used, as a bitfield (16 bits)", true, "integer"); 
 		Device.AddAsset(OUTPUTSID, "used outputs", "Specify which digital outputs are used (20 bits)", true, "integer"); 
 		//Device.AddAsset(ERRORID, "last error", "the last error produced by the device (after bootup)", false, "string"); 
+		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		for(int i = 0; i < PINTYPESIZE; i++){
 			String label(i);
 			if(pinTypes[i] == 'A')
@@ -309,6 +311,7 @@ bool syncDevice()
 			else
 				Serial.print("invalid pin type: "); Serial.println(pinTypes[i]);
 		}
+		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		unsigned short relay = 1;
 		for(int i = 0 ; i < USEDRELAYSSIZE; i++) {
 			Serial.print(relay); Serial.println(" = relay, usedRelays & relays = "); Serial.println(relay & usedRelays);
@@ -318,7 +321,7 @@ bool syncDevice()
 			}
 			relay = relay << 1;
 		}
-		
+		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		unsigned int output = 1;
 		for(int i = 0 ; i < OUTPUTSSIZE; i++) {
 			if((output & usedOutputs) != 0){
@@ -327,6 +330,7 @@ bool syncDevice()
 			}
 			output = output << 1;
 		}
+		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		initState = DEVICECREATED;
 		return true;
 	}
@@ -343,6 +347,7 @@ void trySubscribe(){
 			else
 				Device.Send("false", relays[i]);
 		}
+		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		
 		for(int i = 0; i < sizeof(outputs)/sizeof(outputs[0]); i++){
 			if(curOutputValues[outputs[i]] == true)
@@ -350,17 +355,20 @@ void trySubscribe(){
 			else
 				Device.Send("false", outputs[i]);
 		}
+		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		for(int i = 0; i < PINTYPESIZE; i++){
 			if(pinTypes[i] == 'B' || pinTypes[i] == 'T')
 				Device.Send("false", inputs[i]);
 		}
+		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		
 		
 		Device.Send("Controllino mega - light control", APPID);			//update the application id so that the mobile client can discover the device.
 		Device.Send(pinTypes, PINTYPESID);
 		Device.Send(String(usedRelays), USEDRELAYSID);
 		Device.Send(String(usedOutputs), OUTPUTSID);
-		WatchDog.Ping();												//start the watchdog
+		wdt_reset();												//make certain that we don't kill the app with the watchdog
+		WatchDog.Ping();												//start the network watchdog
 	}
 }
 
@@ -391,6 +399,7 @@ void setup()
 	#else
 	setupNetworkFast();
 	#endif
+	wdt_enable(WDTO_1S);
 }
 
 void checkNetworkSetup(){
@@ -412,6 +421,7 @@ void checkNetworkSetup(){
                                                                 
 void loop()
 {
+	wdt_reset();												//make certain that we don't kill the app with the watchdog
     for(int i = 0; i < PINTYPESIZE; i++){
         if(pinTypes[i] == 'A'){                                 //we can only upload analog values to the fog/cloud for further processing.         
             int value = analogRead(inputs[i]);
