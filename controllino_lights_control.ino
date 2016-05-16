@@ -11,7 +11,7 @@
 
 #define DEBUG                                   //turn off to remove serial logging so it runs faster and takes up less mem.
 //uncomment  if the device needs to recreate all it's assets upon startup (ex: when placed into new account).
-#define CREATEONSTART 					
+//#define CREATEONSTART 					
 
 #include "keys.h"
 
@@ -269,24 +269,18 @@ void initPins()
 bool initNetwork()
 {
     byte mac[] = {  0x90, 0xA2, 0xDA, 0x0D, 0x8D, 0x3D };       // Adapt to your Arduino MAC Address 
-    if (Ethernet.begin(mac) == 0)                             	// Initialize the Ethernet connection:
+    if (Ethernet.begin(mac, 2000, 1000) == 0)                   // Initialize the Ethernet connection, use a minimum of time, so that the watchdog doesn't keep rebooting at this point if there is no ethernet.
     { 
         #ifdef DEBUG 
-        Serial.println(F("DHCP failed,end"));
+        Serial.println(F("DHCP failed"));
         #endif
+		delay(100); 
         return false;
     }
     delay(100);                                            		//give the Ethernet shield a second to initialize:
 	return true;
 }
 
-//first try to subscribe to local, otherwise to cloud.
-//void subscribe()
-//{
-	//pubSub.
-//	if(Device.Subscribe(pubSub, localMqttUser, localMqttPwd))                                   // make certain that we can receive message from the iot platform (activate mqtt)
-//		initState = SUBSCRIBED;
-//}
 
 //prepare the device in the fog/cloud -> declare all the assets and the correct types
 bool syncDevice()
@@ -343,30 +337,30 @@ void trySubscribe(){
 		initState = SUBSCRIBED;
 		for(int i = 0; i < sizeof(relays)/sizeof(relays[0]); i++){
 			if(curOutputValues[relays[i]] == true)
-				Device.Send("true", relays[i]);
+				Send("true", relays[i]);
 			else
-				Device.Send("false", relays[i]);
+				Send("false", relays[i]);
 		}
 		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		
 		for(int i = 0; i < sizeof(outputs)/sizeof(outputs[0]); i++){
 			if(curOutputValues[outputs[i]] == true)
-				Device.Send("true", outputs[i]);
+				Send("true", outputs[i]);
 			else
-				Device.Send("false", outputs[i]);
+				Send("false", outputs[i]);
 		}
 		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		for(int i = 0; i < PINTYPESIZE; i++){
 			if(pinTypes[i] == 'B' || pinTypes[i] == 'T')
-				Device.Send("false", inputs[i]);
+				Send("false", inputs[i]);
 		}
 		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		
 		
-		Device.Send("Controllino mega - light control", APPID);			//update the application id so that the mobile client can discover the device.
-		Device.Send(pinTypes, PINTYPESID);
-		Device.Send(String(usedRelays), USEDRELAYSID);
-		Device.Send(String(usedOutputs), OUTPUTSID);
+		Send("Controllino mega - light control", APPID);			//update the application id so that the mobile client can discover the device.
+		Send(pinTypes, PINTYPESID);
+		Send(String(usedRelays), USEDRELAYSID);
+		Send(String(usedOutputs), OUTPUTSID);
 		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		WatchDog.Ping();												//start the network watchdog
 	}
@@ -393,34 +387,60 @@ void setup()
 	for(int i = 0; i < PINTYPESIZE; i++)							//init array to all 0 -> all lights are off when we start up.
 		prevPinValues[i] = 0;
     readConfigData();
+	wdt_reset();													//if the watchdog rebooted the dev, it is still running, make certain that the app doesn't get in a continous reboot cycle when there is no ethernet connection.
     initPins();
+	wdt_reset();													//if the watchdog rebooted the dev, it is still running, make certain that the app doesn't get in a continous reboot cycle when there is no ethernet connection.
 	#ifdef CREATEONSTART
 	setupNetwork();
 	#else
 	setupNetworkFast();
 	#endif
-	wdt_enable(WDTO_1S);
+	wdt_enable(WDTO_4S);
 }
+
+unsigned long lastTimeChecked = 0;
 
 void checkNetworkSetup(){
-	if(initState == 0)
-		setupNetwork();
-	else if(initState == ETHSTARTED){
-		if(syncDevice()){
-			if(Device.Subscribe(pubSub))                                   // make certain that we can receive message from the iot platform (activate mqtt)
-				initState = SUBSCRIBED;
+	unsigned long curTime = millis();
+	if (curTime >= lastTimeChecked + 20000){								//only check every 20 seconds. If there is a network problem and we check on every run of process, then the system appears to hang or stutter
+		lastTimeChecked = curTime;
+		if(initState == 0){
+			#ifdef CREATEONSTART
+			setupNetwork();
+			#else
+			setupNetworkFast();
+			#endif
 		}
-	}
-	else if(initState == DEVICECREATED && Device.Subscribe(pubSub)){
-		initState = SUBSCRIBED;
-		WatchDog.Ping();												//start the watchdog
+		else if(initState == ETHSTARTED){
+			if(syncDevice()){
+				if(Device.Subscribe(pubSub))                                   // make certain that we can receive message from the iot platform (activate mqtt)
+					initState = SUBSCRIBED;
+			}
+		}
+		else if(initState == DEVICECREATED && Device.Subscribe(pubSub)){
+			initState = SUBSCRIBED;
+			WatchDog.Ping();												//start the watchdog
+		}
 	}
 }
 
 
+//only send if there is a network connection, otherwise skip.
+void Send(String value, int id){
+	if (initState == SUBSCRIBED && ethClient){
+		if(pubSub.connected())
+			Device.Send(value, id);
+		else 
+			initState = 0;					//discovered network failure, reset state
+	}
+	else{
+		Serial.print("no network connection, can't send value '"); Serial.print(value); Serial.print("' to: "); Serial.println(id); 
+	}
+}
                                                                 
 void loop()
 {
+	//Serial.println("process start");
 	wdt_reset();												//make certain that we don't kill the app with the watchdog
     for(int i = 0; i < PINTYPESIZE; i++){
         if(pinTypes[i] == 'A'){                                 //we can only upload analog values to the fog/cloud for further processing.         
@@ -430,7 +450,7 @@ void loop()
                 Serial.print("value pin "); Serial.print(pinTypes[i]); Serial.print(" = "); Serial.println(value);
                 #endif
                 prevPinValues[i] = value;
-                Device.Send(String(value), inputs[i]);
+                Send(String(value), inputs[i]);
             }
         }
         else if(pinTypes[i] == 'B'){
@@ -442,9 +462,9 @@ void loop()
                 prevPinValues[i] = (int)value;
                 doIOMapping(i, value);
                 if(value == 1)
-                   Device.Send("true", inputs[i]);
+                   Send("true", inputs[i]);
                 else
-                   Device.Send("false", inputs[i]);
+                   Send("false", inputs[i]);
             }
         }
         else if(pinTypes[i] == 'T'){
@@ -458,15 +478,19 @@ void loop()
                 }
                 prevPinValues[i] = value;
                 if(value == 1)
-                   Device.Send("true", inputs[i]);
+                   Send("true", inputs[i]);
                 else
-                  Device.Send("false", inputs[i]);
+                  Send("false", inputs[i]);
             }
         }
     }
-    Device.Process(); 
-	if(initState == SUBSCRIBED && WatchDog.CheckPing() == false)		//when we are subscribed, check for network status.
-		initState = DEVICECREATED;								//if we lost the connection, reset it the state, so that the connection is recreated.
+	if(initState == SUBSCRIBED)		//when we are subscribed, check for network status.
+	{
+		if(Device.Process() == false)					// if process failed, the connection is lost, so try to recreate later on
+			initState = 0;
+		else if(WatchDog.CheckPing() == false)
+			initState = DEVICECREATED;								//if we lost the connection, reset it the state, so that the connection is recreated.
+	}
 	checkNetworkSetup();	
 }
 
@@ -479,9 +503,9 @@ void doIOMapping(byte ioMapIndex, bool value)
         #endif
         SetOutputVal(ioMap[ioMapIndex], value);
 		if(value == true)
-		   Device.Send("true", ioMap[ioMapIndex]);
+		   Send("true", ioMap[ioMapIndex]);
 		else
-		  Device.Send("false", ioMap[ioMapIndex]);
+		  Send("false", ioMap[ioMapIndex]);
     }
 }
 
@@ -496,9 +520,9 @@ void doToggleIOMapping(byte ioMapIndex)
 		curOutputValues[index] = !curOutputValues[index];
         digitalWrite(ioMap[ioMapIndex], curOutputValues[index]);          //change the actuator status to false
 		if (curOutputValues[index])
-			Device.Send("true", ioMap[ioMapIndex]);
+			Send("true", ioMap[ioMapIndex]);
 		else
-			Device.Send("false", ioMap[ioMapIndex]);
+			Send("false", ioMap[ioMapIndex]);
     }
 }
 
@@ -575,6 +599,6 @@ void callback(char* topic, byte* payload, unsigned int length)
 				SetOutputVal(pinNr, HIGH);              //change the actuator status to true
 		}
 	}
-    Device.Send(msgString, pinNr);    
+    Send(msgString, pinNr);    
 }
 
