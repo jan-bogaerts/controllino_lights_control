@@ -304,8 +304,8 @@ bool syncDevice()
 				Device.AddAsset(inputs[i], "toggle " + label, "a toggle button input pin", false, "boolean"); 
 			else
 				Serial.print("invalid pin type: "); Serial.println(pinTypes[i]);
+			wdt_reset();												//make certain that we don't kill the app with the watchdog
 		}
-		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		unsigned short relay = 1;
 		for(int i = 0 ; i < USEDRELAYSSIZE; i++) {
 			Serial.print(relay); Serial.println(" = relay, usedRelays & relays = "); Serial.println(relay & usedRelays);
@@ -314,8 +314,8 @@ bool syncDevice()
 				Device.AddAsset(relays[i], "relays " + label, "an output relays", true, "boolean"); 
 			}
 			relay = relay << 1;
+			wdt_reset();												//make certain that we don't kill the app with the watchdog
 		}
-		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		unsigned int output = 1;
 		for(int i = 0 ; i < OUTPUTSSIZE; i++) {
 			if((output & usedOutputs) != 0){
@@ -323,8 +323,8 @@ bool syncDevice()
 				Device.AddAsset(outputs[i], "output " + label, "an output pin", true, "boolean"); 
 			}
 			output = output << 1;
+			wdt_reset();												//make certain that we don't kill the app with the watchdog
 		}
-		wdt_reset();												//make certain that we don't kill the app with the watchdog
 		initState = DEVICECREATED;
 		return true;
 	}
