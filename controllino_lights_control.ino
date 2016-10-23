@@ -331,6 +331,19 @@ bool syncDevice()
 	return false;
 }
 
+//only send if there is a network connection, otherwise skip.
+void Send(String value, int id){
+	if (initState == SUBSCRIBED && ethClient){
+		if(pubSub.connected())
+			Device.Send(value, id);
+		else 
+			initState = 0;					//discovered network failure, reset state
+	}
+	else{
+		Serial.print("no network connection, can't send value '"); Serial.print(value); Serial.print("' to: "); Serial.println(id); 
+	}
+}
+
 void trySubscribe(){
 	if(Device.Subscribe(pubSub))                                   // make certain that we can receive message from the iot platform (activate mqtt)
 	{
@@ -424,19 +437,6 @@ void checkNetworkSetup(){
 	}
 }
 
-
-//only send if there is a network connection, otherwise skip.
-void Send(String value, int id){
-	if (initState == SUBSCRIBED && ethClient){
-		if(pubSub.connected())
-			Device.Send(value, id);
-		else 
-			initState = 0;					//discovered network failure, reset state
-	}
-	else{
-		Serial.print("no network connection, can't send value '"); Serial.print(value); Serial.print("' to: "); Serial.println(id); 
-	}
-}
                                                                 
 void loop()
 {
