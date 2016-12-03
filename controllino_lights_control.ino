@@ -11,7 +11,7 @@
 
 #define DEBUG                                   //turn off to remove serial logging so it runs faster and takes up less mem.
 //uncomment  if the device needs to recreate all it's assets upon startup (ex: when placed into new account).
-//#define CREATEONSTART 					
+#define CREATEONSTART 					
 
 #include "keys.h"
 
