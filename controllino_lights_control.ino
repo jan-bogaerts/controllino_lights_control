@@ -491,7 +491,8 @@ void loop()
 		else if(WatchDog.CheckPing() == false)
 			initState = DEVICECREATED;								//if we lost the connection, reset it the state, so that the connection is recreated.
 	}
-	checkNetworkSetup();	
+	checkNetworkSetup();
+	delay(100);														//sleep a little so we don't read buttons too quickly (prevent the wobble)
 }
 
 //check the io map and if there is an output pin defined, send the new value to it.
